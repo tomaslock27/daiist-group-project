@@ -1,0 +1,4 @@
+model,auc,avg_precision,brier,precision,recall,f1,flagged_share,recall_at_rule_budget
+rule (baseline),0.935,0.712,,0.684,0.617,0.649,0.066,0.617
+logreg,0.957,0.781,0.031,0.878,0.526,0.658,0.044,0.675
+hgb,0.962,0.788,0.029,0.824,0.625,0.711,0.056,0.682

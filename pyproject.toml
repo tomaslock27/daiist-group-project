@@ -8,6 +8,7 @@ dependencies = [
     "numpy>=2.0",
     "pandas>=2.2",
     "psycopg[binary]>=3.2",
+    "scikit-learn>=1.9.1",
 ]
 
 # Only for running evaluate.ipynb locally; not installed on Render.

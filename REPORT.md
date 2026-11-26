@@ -2,7 +2,7 @@
 
 - **Team** (Blackboard group name):
 - **Section**: [BBADBA 5A | BBADBA 5B | PPLEDBA 5A]
-- **App URL** (on Render):
+- **App URL** (on Render): https://connecting-flights-rescue.onrender.com/
 - **Final commit** (tag `final`):
 
 *At most about 3,000 words, tables excluded. Members and who did what go in CONTRIBUTIONS.md.*
