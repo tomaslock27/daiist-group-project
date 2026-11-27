@@ -20,8 +20,9 @@ import pipeline
 env.load_env()
 LOG_TARGET = logbook.start()
 
-TITLE = "Your product's name"  # TODO
-DESCRIPTION = "One sentence: who it is for and what it does."  # TODO
+TITLE = "Connection Rescue"  # working name: the team can change it
+DESCRIPTION = ("For an airline's re-accommodation desk at Chicago O'Hare and Denver: when an inbound flight runs late, "
+               "it predicts which connecting passengers will miss their next flight and plans what to do before they land.")
 
 
 def serve(raw_input: str) -> dict:
@@ -33,18 +34,30 @@ def serve(raw_input: str) -> dict:
 
 # --- App tab -----------------------------------------------------------------
 
+DECISION_LABELS = {"keep": "Keep the booking", "rebook": "Rebook now", "overnight": "Plan an overnight", "out_of_scope": "Not a connection I can help with"}
+
+
 def on_run(raw_input):
     if raw_input is None or not str(raw_input).strip():
-        raise gr.Error("Give me an input first.")
+        raise gr.Error("Pick a connection first.")
     record = serve(raw_input)
-    outputs = record["outputs"]
-    status = "⚠️ **Sent to a person for review.**" if record["review"] else "✅ Handled automatically."
-    return (
-        outputs["component_a"],
-        outputs["component_b"]["reply"],
-        f"{status}  Latency {record['latency_s']} s, cost €{record['cost_eur']:.4f}.",
-        record["id"],
-    )
+    a, b = record["outputs"]["component_a"], record["outputs"]["component_b"]
+    if "risk" in a:
+        risk_text = (f"### Risk of missing the connection: {a['risk']:.0%}"
+                     f"{'  ⚠️ flagged' if a['flagged'] else ''}\n"
+                     f"Estimated arrival **{a['estimated_arrival']}** · connection departs **{a['connection_departs']}** · "
+                     f"**{a['minutes_to_spare']} min** to spare after the minimum connection time · hub {a['hub']}")
+    else:
+        risk_text = "### Risk: not scored\nThis input is not a connection on today's list."
+    decision = DECISION_LABELS.get(b.get("decision"), str(b.get("decision")))
+    flight = f" → **{b['new_flight']}**" if b.get("new_flight") else ""
+    decision_text = f"### {decision}{flight}\n{b.get('reason_for_desk', '')}\n\n<small>Decided by: {b.get('mode', '-')}{' · ' + b['model'] if b.get('model') else ''}</small>"
+    if record["review"]:
+        status = "⚠️ **Sent to a person for review:** " + "; ".join(b.get("review_reasons", [])) + "."
+    else:
+        status = "✅ Handled automatically."
+    status += f"  Latency {record['latency_s']} s, cost €{record['cost_eur']:.4f}."
+    return risk_text, decision_text, b.get("reply", ""), record["outputs"], status, record["id"]
 
 
 def on_feedback(request_id, value):
@@ -81,17 +94,22 @@ with gr.Blocks(title=TITLE) as demo:
 
     with gr.Tab("App"):
         request_id = gr.State("")
-        # TODO: your input. For images: gr.Image(type="filepath"); for files: gr.File(type="filepath").
-        raw_input = gr.Textbox(label="Customer message", lines=4)
+        raw_input = gr.Dropdown(
+            choices=pipeline.demo_choices(), label="Connection to check (inbound flights running late)",
+            allow_custom_value=True, filterable=True,
+        )
         run_button = gr.Button("Run", variant="primary")
         with gr.Row():
-            out_a = gr.JSON(label="Component A")
-            out_b = gr.Textbox(label="Component B", lines=4)
+            risk_box = gr.Markdown(label="Component A: risk model")
+            decision_box = gr.Markdown(label="Component B: rebooking agent")
+        message_box = gr.Textbox(label="Message to the passenger", lines=3)
         status = gr.Markdown()
         with gr.Row():
             up = gr.Button("👍")
             down = gr.Button("👎")
-        run_button.click(on_run, raw_input, [out_a, out_b, status, request_id], api_name="run")
+        with gr.Accordion("Details (what both components returned)", open=False):
+            details = gr.JSON(label="Outputs")
+        run_button.click(on_run, raw_input, [risk_box, decision_box, message_box, details, status, request_id], api_name="run")
         up.click(lambda rid: on_feedback(rid, +1), request_id, None, api_name=False)
         down.click(lambda rid: on_feedback(rid, -1), request_id, None, api_name=False)
 

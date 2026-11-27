@@ -28,11 +28,17 @@ RESULTS = ROOT / "eval" / "results.csv"
 
 
 def is_correct(case: dict, result: dict) -> bool | None:
-    """TODO: is this end-to-end result correct for this case? None if code cannot tell (use the judge).
+    """Is this end-to-end result correct for this case? None if code cannot tell (use the judge).
 
-    PLACEHOLDER: compares component A's label with `expected`.
+    Compares the agent's decision with `expected` in eval/cases.csv, which holds one of:
+    keep, rebook, overnight, out_of_scope. The passenger message is free text: the LLM
+    judge checks it (TODO 3 below).
     """
-    return result["outputs"]["component_a"]["label"] == case["expected"].strip()
+    expected = (case.get("expected") or "").strip().lower()
+    decision = str(result["outputs"]["component_b"].get("decision", "")).lower()
+    if expected not in {"keep", "rebook", "overnight", "out_of_scope"}:
+        return None
+    return decision == expected
 
 
 def main() -> None:
