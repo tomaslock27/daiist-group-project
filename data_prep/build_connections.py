@@ -8,7 +8,7 @@ https://transtats.bts.gov (the PREZIP .zip files, or the .csv inside them).
 Kaggle mirrors with the usual column names work too.
 
 Output (in --out, default data/):
-  connections.csv  one row per (inbound flight -> outbound flight) pair at the hub:
+  connections.csv.gz  (compressed CSV) one row per (inbound flight -> outbound flight) pair at the hub:
                    ids for display, FEATURES known at decision time, the label `missed`,
                    and `outcome_*` columns that are NOT features (analysis only)
   schedule.csv     every departure of the airline from the hub, for the agent's
@@ -107,8 +107,12 @@ def hhmm_to_min(hhmm: pd.Series) -> pd.Series:
 
 
 def load(paths: list[Path], airline: str) -> pd.DataFrame:
-    df = pd.concat([read_file(p) for p in paths], ignore_index=True)
-    df = df[df["airline"].astype(str).str.strip() == airline].copy()
+    parts = []
+    for p in paths:  # keep only this airline from each file, so a whole year fits in memory
+        part = read_file(p)
+        parts.append(part[part["airline"].astype(str).str.strip() == airline])
+        print(f"  {p.name}: {len(parts[-1]):,} {airline} flights")
+    df = pd.concat(parts, ignore_index=True).copy()
     if df.empty:
         raise SystemExit(f"No flights for airline {airline} in these files.")
     df["date"] = pd.to_datetime(df["date"]).dt.normalize()
@@ -221,7 +225,7 @@ def build(df: pd.DataFrame, hub: str, mct: int, min_slack: int, max_slack: int, 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("files", nargs="+", type=Path)
-    p.add_argument("--hub", default="ORD")
+    p.add_argument("--hub", default="ORD", help="one hub, or several separated by commas, e.g. EWR,IAD")
     p.add_argument("--airline", default="UA", help="reporting carrier code, e.g. UA, AA, DL")
     p.add_argument("--mct", type=int, default=35, help="minimum connection time in minutes (an assumption: justify it)")
     p.add_argument("--min-slack", type=int, default=35)
@@ -241,18 +245,27 @@ def main() -> None:
     print("Reading " + ", ".join(f.name for f in files))
     df = load(files, args.airline)
     print(f"{len(df):,} {args.airline} flights, {df['date'].min().date()} to {df['date'].max().date()}.")
-    connections, schedule = build(df, args.hub, args.mct, args.min_slack, args.max_slack, args.per_inbound, args.seed)
-    if connections.empty:
-        raise SystemExit(f"No connections at {args.hub}. Is it a hub of {args.airline}?")
+    hubs = [h.strip().upper() for h in args.hub.split(",") if h.strip()]
+    all_connections, all_schedules = [], []
+    for hub in hubs:
+        connections, schedule = build(df, hub, args.mct, args.min_slack, args.max_slack, args.per_inbound, args.seed)
+        if connections.empty:
+            raise SystemExit(f"No connections at {hub}. Is it a hub of {args.airline}?")
+        connections.insert(1, "hub", hub)
+        schedule.insert(0, "hub", hub)
+        all_connections.append(connections)
+        all_schedules.append(schedule)
+    connections = pd.concat(all_connections, ignore_index=True)
+    schedule = pd.concat(all_schedules, ignore_index=True)
     args.out.mkdir(parents=True, exist_ok=True)
-    connections.to_csv(args.out / "connections.csv", index=False)
+    connections.to_csv(args.out / "connections.csv.gz", index=False)  # compressed: a year of data stays small for GitHub
     schedule.to_csv(args.out / "schedule.csv", index=False)
-    print(f"Wrote {args.out / 'connections.csv'}: {len(connections):,} connections, "
+    print(f"Wrote {args.out / 'connections.csv.gz'}: {len(connections):,} connections, "
           f"{connections[LABEL].mean():.1%} missed.")
-    print(f"Wrote {args.out / 'schedule.csv'}: {len(schedule):,} departures from {args.hub}.")
-    print("\nMissed rate by month:")
-    print(connections.groupby(connections["date"].str[:7])[LABEL].agg(["count", "mean"]).round(3).to_string())
-
+    print(f"Wrote {args.out / 'schedule.csv'}: {len(schedule):,} departures from {', '.join(hubs)}.")
+    print("\nConnections and missed rate by hub and month:")
+    table = connections.groupby(["hub", connections["date"].str[:7].rename("month")])[LABEL].agg(["count", "mean"])
+    print(table.rename(columns={"count": "connections", "mean": "missed"}).round(3).to_string())
 
 if __name__ == "__main__":
     main()
